@@ -1,6 +1,6 @@
 use crate::{attr, bound};
 use proc_macro2::{Span, TokenStream};
-use quote::quote;
+use quote::{quote, format_ident};
 use syn::{
     parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident,
     Result, Variant,
@@ -13,18 +13,29 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     }
 }
 
+fn list_field_names(variant: &Variant) -> Vec<Ident> {
+    variant
+        .fields
+        .iter()
+        .map(|f| f.ident.clone())
+        .enumerate()
+        .map(|(i, f)| match f {
+            Some(f) => f,
+            None => format_ident!("_{}", i),
+        })
+        .collect::<Vec<_>>()
+}
+
 fn variant_fragment(enum_ident: &Ident, variant: &Variant) -> TokenStream {
-    let stream_name = Ident::new(
-        &format!("__{}_{}_VARIANT_STREAM", enum_ident, variant.ident),
-        Span::call_site(),
-    );
+    let stream_name = format_ident!("__{}_{}_VARIANT_STREAM", enum_ident, variant.ident);
+    let struct_name = format_ident!("__{}_{}_VARIANT_STRUCT", enum_ident, variant.ident);
 
-    let struct_name = Ident::new(
-        &format!("__{}_{}_VARIANT_STRUCT", enum_ident, variant.ident),
-        Span::call_site(),
-    );
-
-    let data_struct_fields = variant_fields_pattern(false, &variant);
+    let field_names = list_field_names(&variant);
+    let data_struct_fields = quote! {
+        #(
+            #field_names
+        ),*
+    };
 
     quote! {
         miniserde::ser::Fragment::Map(Box::new(#stream_name {
@@ -38,14 +49,8 @@ fn variant_fragment(enum_ident: &Ident, variant: &Variant) -> TokenStream {
 
 fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
     let variant_name = &variant.ident.to_string();
-    let stream_name = Ident::new(
-        &format!("__{}_{}_VARIANT_STREAM", enum_ident, variant.ident),
-        Span::call_site(),
-    );
-    let struct_name = Ident::new(
-        &format!("__{}_{}_VARIANT_STRUCT", enum_ident, variant.ident),
-        Span::call_site(),
-    );
+    let stream_name = format_ident!("__{}_{}_VARIANT_STREAM", enum_ident, variant.ident);
+    let struct_name = format_ident!("__{}_{}_VARIANT_STRUCT", enum_ident, variant.ident);
 
     let is_unit = variant.fields.iter().count() == 0;
 
@@ -56,13 +61,7 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
 
         (quote!(&()), s, TokenStream::new())
     } else {
-        let field_names = variant
-            .fields
-            .iter()
-            .map(|f| f.ident.as_ref())
-            .flatten()
-            .collect::<Vec<_>>();
-
+        let field_names = list_field_names(variant);
         let field_types = variant
             .fields
             .iter()
@@ -109,30 +108,33 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
     }
 }
 
-fn variant_fields_pattern(by_ref: bool, variant: &Variant) -> TokenStream {
+fn variant_fields_pattern(variant: &Variant) -> TokenStream {
     let is_unit = variant.fields.iter().count() == 0;
     if is_unit {
         return TokenStream::new();
     }
 
-    let fields = variant
-        .fields
+    // Tuple variants doesn't have fields with names
+    let is_tuple = variant.fields
         .iter()
-        .map(|f| f.ident.as_ref())
-        .flatten()
-        .collect::<Vec<_>>();
+        .filter(|f| f.ident.is_some())
+        .count() == 0;
 
-    if by_ref {
+    let fields = list_field_names(variant);
+
+    let pattern = quote! {
+        #(
+            #fields,
+        )*
+    };
+
+    if is_tuple {
         quote! {
-            #(
-                ref #fields,
-            )*
+            ( #pattern )
         }
     } else {
         quote! {
-            #(
-                #fields,
-            )*
+            { #pattern }
         }
     }
 }
@@ -179,7 +181,7 @@ fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStrea
     let variant_pattern_fields = enumeration
         .variants
         .iter()
-        .map(|variant| variant_fields_pattern(true, variant))
+        .map(|variant| variant_fields_pattern(variant))
         .collect::<Vec<_>>();
 
     let tokens = quote! {
@@ -193,7 +195,7 @@ fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStrea
                 fn begin(&self) -> miniserde::ser::Fragment {
                     match self {
                         #(
-                            #ident::#var_idents { #variant_pattern_fields } => {
+                            #ident::#var_idents #variant_pattern_fields => {
                                 #variant_impl
                             }
                         )*

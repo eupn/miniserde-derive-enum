@@ -6,10 +6,11 @@ pub fn main() {
     enum E {
         Unit,
         Struct { a: u8, b: u8 },
-        //        Tuple(u8, String)
+        Tuple(u8, String)
     }
 
     let s = E::Struct { a: 0u8, b: 1u8 };
     let u = E::Unit;
-    println!("{}\n{}", json::to_string(&s), json::to_string(&u));
+    let t = E::Tuple(0u8, "Hello".to_owned());
+    println!("{}\n{}\n{}", json::to_string(&s), json::to_string(&u), json::to_string(&t));
 }
