@@ -16,10 +16,6 @@ proc-macro = true
 name = "main"
 path = "src/main.rs"
 
-[[bin]]
-name = "test"
-path = "src/test.rs"
-
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0.2"

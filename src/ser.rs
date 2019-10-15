@@ -1,26 +1,28 @@
 use crate::{attr, bound};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident, Result, Variant};
+use syn::{
+    parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident,
+    Result, Variant,
+};
 
 pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     match &input.data {
         Data::Enum(enumeration) => derive_enum(&input, enumeration),
-        _ => Err(Error::new(
-            Span::call_site(),
-            "only enums are supported",
-        )),
+        _ => Err(Error::new(Span::call_site(), "only enums are supported")),
     }
 }
 
 fn variant_fragment(enum_ident: &Ident, variant: &Variant) -> TokenStream {
     let stream_name = Ident::new(
         &format!("__{}_{}_VARIANT_STREAM", enum_ident, variant.ident),
-                 Span::call_site());
+        Span::call_site(),
+    );
 
     let struct_name = Ident::new(
         &format!("__{}_{}_VARIANT_STRUCT", enum_ident, variant.ident),
-        Span::call_site());
+        Span::call_site(),
+    );
 
     let data_struct_fields = variant_fields_pattern(false, &variant);
 
@@ -38,10 +40,12 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
     let variant_name = &variant.ident.to_string();
     let stream_name = Ident::new(
         &format!("__{}_{}_VARIANT_STREAM", enum_ident, variant.ident),
-        Span::call_site());
+        Span::call_site(),
+    );
     let struct_name = Ident::new(
         &format!("__{}_{}_VARIANT_STRUCT", enum_ident, variant.ident),
-        Span::call_site());
+        Span::call_site(),
+    );
 
     let is_unit = variant.fields.iter().count() == 0;
 
@@ -52,13 +56,15 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
 
         (quote!(&()), s, TokenStream::new())
     } else {
-        let field_names = variant.fields
+        let field_names = variant
+            .fields
             .iter()
             .map(|f| f.ident.as_ref())
             .flatten()
             .collect::<Vec<_>>();
 
-        let field_types = variant.fields
+        let field_types = variant
+            .fields
             .iter()
             .map(|f| f.ty.clone())
             .collect::<Vec<_>>();
@@ -106,10 +112,11 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
 fn variant_fields_pattern(by_ref: bool, variant: &Variant) -> TokenStream {
     let is_unit = variant.fields.iter().count() == 0;
     if is_unit {
-        return TokenStream::new()
+        return TokenStream::new();
     }
 
-    let fields = variant.fields
+    let fields = variant
+        .fields
         .iter()
         .map(|f| f.ident.as_ref())
         .flatten()
