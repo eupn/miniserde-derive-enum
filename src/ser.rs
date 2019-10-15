@@ -69,6 +69,7 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
             .collect::<Vec<_>>();
 
         let s = quote! {
+            #[allow(non_camel_case_types)]
             #[derive(Serialize)]
             struct #struct_name<'a> {
                 #(
@@ -87,6 +88,7 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
     quote! {
         #data_struct
 
+        #[allow(non_camel_case_types)]
         struct #stream_name #data_struct_lifetime {
             data: #struct_name #data_struct_lifetime,
             state: usize,
