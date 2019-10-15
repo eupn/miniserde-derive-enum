@@ -43,37 +43,57 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
         &format!("__{}_{}_VARIANT_STRUCT", enum_ident, variant.ident),
         Span::call_site());
 
-    let field_names = variant.fields
-        .iter()
-        .map(|f| f.ident.as_ref())
-        .flatten()
-        .collect::<Vec<_>>();
+    let is_unit = variant.fields.iter().count() == 0;
 
-    let field_types = variant.fields
-        .iter()
-        .map(|f| f.ty.clone())
-        .collect::<Vec<_>>();
+    let (data, data_struct, data_struct_lifetime) = if is_unit {
+        let s = quote! {
+            struct #struct_name;
+        };
+
+        (quote!(&()), s, TokenStream::new())
+    } else {
+        let field_names = variant.fields
+            .iter()
+            .map(|f| f.ident.as_ref())
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let field_types = variant.fields
+            .iter()
+            .map(|f| f.ty.clone())
+            .collect::<Vec<_>>();
+
+        let s = quote! {
+            #[derive(Serialize)]
+            struct #struct_name<'a> {
+                #(
+                    #field_names: &'a #field_types,
+                )*
+            }
+        };
+
+        let lifetime = quote! {
+            <'__a>
+        };
+
+        (quote!(&self.data), s, lifetime)
+    };
 
     quote! {
-        #[derive(Serialize)]
-        struct #struct_name<'a> {
-            #(
-                #field_names: &'a #field_types,
-            )*
-        }
+        #data_struct
 
-        struct #stream_name <'__a> {
-            data: #struct_name<'__a>,
+        struct #stream_name #data_struct_lifetime {
+            data: #struct_name #data_struct_lifetime,
             state: usize,
         }
 
-        impl<'__a> miniserde::ser::Map for #stream_name<'__a> {
+        impl #data_struct_lifetime miniserde::ser::Map for #stream_name #data_struct_lifetime {
             fn next(&mut self) -> miniserde::export::Option<(miniserde::export::Cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
                 let __state = self.state;
                 self.state = __state + 1;
                 match __state {
                     0usize => {
-                        Some((miniserde::export::Cow::Borrowed(#variant_name), &self.data))
+                        Some((miniserde::export::Cow::Borrowed(#variant_name), #data))
                     },
 
                     _ => miniserde::export::None,
@@ -84,6 +104,11 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
 }
 
 fn variant_fields_pattern(by_ref: bool, variant: &Variant) -> TokenStream {
+    let is_unit = variant.fields.iter().count() == 0;
+    if is_unit {
+        return TokenStream::new()
+    }
+
     let fields = variant.fields
         .iter()
         .map(|f| f.ident.as_ref())

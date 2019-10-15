@@ -4,11 +4,12 @@ use miniserde_derive_enum::{Serialize_enum};
 pub fn main() {
     #[derive(Serialize_enum)]
     enum E {
-//        Unit,
+        Unit,
         Struct { a: u8, b: u8},
 //        Tuple(u8, String)
     }
 
-    let e = E::Struct { a: 0u8, b: 1u8 };
-    println!("{}", json::to_string(&e));
+    let s = E::Struct { a: 0u8, b: 1u8 };
+    let u = E::Unit;
+    println!("{}\n{}", json::to_string(&s), json::to_string(&u));
 }
