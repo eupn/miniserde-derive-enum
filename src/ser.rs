@@ -1,21 +1,111 @@
 use crate::{attr, bound};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::{
-    parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident, Result,
-};
+use syn::{parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident, Result, Variant};
 
 pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     match &input.data {
         Data::Enum(enumeration) => derive_enum(&input, enumeration),
         _ => Err(Error::new(
             Span::call_site(),
-            "currently only structs with named fields are supported",
+            "only enums are supported",
         )),
     }
 }
 
-fn derive_struct(input: &DeriveInput, fields: &FieldsNamed) -> Result<TokenStream> {
+fn variant_fragment(enum_ident: &Ident, variant: &Variant) -> TokenStream {
+    let stream_name = Ident::new(
+        &format!("__{}_{}_VARIANT_STREAM", enum_ident, variant.ident),
+                 Span::call_site());
+
+    let struct_name = Ident::new(
+        &format!("__{}_{}_VARIANT_STRUCT", enum_ident, variant.ident),
+        Span::call_site());
+
+    let data_struct_fields = variant_fields_pattern(false, &variant);
+
+    quote! {
+        miniserde::ser::Fragment::Map(Box::new(#stream_name {
+            data: #struct_name {
+                #data_struct_fields
+            },
+            state: 0,
+        }))
+    }
+}
+
+fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
+    let variant_name = &variant.ident.to_string();
+    let stream_name = Ident::new(
+        &format!("__{}_{}_VARIANT_STREAM", enum_ident, variant.ident),
+        Span::call_site());
+    let struct_name = Ident::new(
+        &format!("__{}_{}_VARIANT_STRUCT", enum_ident, variant.ident),
+        Span::call_site());
+
+    let field_names = variant.fields
+        .iter()
+        .map(|f| f.ident.as_ref())
+        .flatten()
+        .collect::<Vec<_>>();
+
+    let field_types = variant.fields
+        .iter()
+        .map(|f| f.ty.clone())
+        .collect::<Vec<_>>();
+
+    quote! {
+        #[derive(Serialize)]
+        struct #struct_name<'a> {
+            #(
+                #field_names: &'a #field_types,
+            )*
+        }
+
+        struct #stream_name <'__a> {
+            data: #struct_name<'__a>,
+            state: usize,
+        }
+
+        impl<'__a> miniserde::ser::Map for #stream_name<'__a> {
+            fn next(&mut self) -> miniserde::export::Option<(miniserde::export::Cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
+                let __state = self.state;
+                self.state = __state + 1;
+                match __state {
+                    0usize => {
+                        Some((miniserde::export::Cow::Borrowed(#variant_name), &self.data))
+                    },
+
+                    _ => miniserde::export::None,
+                }
+            }
+        }
+    }
+}
+
+fn variant_fields_pattern(by_ref: bool, variant: &Variant) -> TokenStream {
+    let fields = variant.fields
+        .iter()
+        .map(|f| f.ident.as_ref())
+        .flatten()
+        .collect::<Vec<_>>();
+
+    if by_ref {
+        quote! {
+            #(
+                ref #fields,
+            )*
+        }
+    } else {
+        quote! {
+            #(
+                #fields,
+            )*
+        }
+    }
+}
+
+fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
     let ident = &input.ident;
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let dummy = Ident::new(
@@ -23,12 +113,6 @@ fn derive_struct(input: &DeriveInput, fields: &FieldsNamed) -> Result<TokenStrea
         Span::call_site(),
     );
 
-    let fieldname = &fields.named.iter().map(|f| &f.ident).collect::<Vec<_>>();
-    let fieldstr = fields
-        .named
-        .iter()
-        .map(attr::name_of_field)
-        .collect::<Result<Vec<_>>>()?;
     let index = 0usize..;
 
     let wrapper_generics = bound::with_lifetime_bound(&input.generics, "'__a");
@@ -36,87 +120,56 @@ fn derive_struct(input: &DeriveInput, fields: &FieldsNamed) -> Result<TokenStrea
     let bound = parse_quote!(miniserde::Serialize);
     let bounded_where_clause = bound::where_clause_with_bound(&input.generics, bound);
 
-    Ok(quote! {
-        #[allow(non_upper_case_globals)]
-        const #dummy: () = {
-            impl #impl_generics miniserde::Serialize for #ident #ty_generics #bounded_where_clause {
-                fn begin(&self) -> miniserde::ser::Fragment {
-                    miniserde::ser::Fragment::Map(miniserde::export::Box::new(__Map {
-                        data: self,
-                        state: 0,
-                    }))
-                }
-            }
-
-            struct __Map #wrapper_impl_generics #where_clause {
-                data: &'__a #ident #ty_generics,
-                state: miniserde::export::usize,
-            }
-
-            impl #wrapper_impl_generics miniserde::ser::Map for __Map #wrapper_ty_generics #bounded_where_clause {
-                fn next(&mut self) -> miniserde::export::Option<(miniserde::export::Cow<miniserde::export::str>, &dyn miniserde::Serialize)> {
-                    let __state = self.state;
-                    self.state = __state + 1;
-                    match __state {
-                        #(
-                            #index => miniserde::export::Some((
-                                miniserde::export::Cow::Borrowed(#fieldstr),
-                                &self.data.#fieldname,
-                            )),
-                        )*
-                        _ => miniserde::export::None,
-                    }
-                }
-            }
-        };
-    })
-}
-
-fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
-    if input.generics.lt_token.is_some() || input.generics.where_clause.is_some() {
-        return Err(Error::new(
-            Span::call_site(),
-            "Enums with generics are not supported",
-        ));
-    }
-
-    let ident = &input.ident;
-    let dummy = Ident::new(
-        &format!("_IMPL_MINISERIALIZE_FOR_{}", ident),
-        Span::call_site(),
-    );
-
     let var_idents = enumeration
         .variants
         .iter()
-        .map(|variant| match variant.fields {
-            Fields::Unit => Ok(&variant.ident),
-            _ => Err(Error::new_spanned(
-                variant,
-                "Invalid variant: only simple enum variants without fields are supported",
-            )),
-        })
-        .collect::<Result<Vec<_>>>()?;
+        .map(|variant| &variant.ident)
+        .collect::<Vec<_>>();
+
     let names = enumeration
         .variants
         .iter()
         .map(attr::name_of_variant)
         .collect::<Result<Vec<_>>>()?;
 
-    Ok(quote! {
+    let variant_impl = enumeration
+        .variants
+        .iter()
+        .map(|variant| variant_fragment(ident, variant))
+        .collect::<Vec<_>>();
+
+    let variant_streams = enumeration
+        .variants
+        .iter()
+        .map(|variant| variant_body_impl(ident, variant))
+        .collect::<Vec<_>>();
+
+    let variant_pattern_fields = enumeration
+        .variants
+        .iter()
+        .map(|variant| variant_fields_pattern(true, variant))
+        .collect::<Vec<_>>();
+
+    let tokens = quote! {
         #[allow(non_upper_case_globals)]
         const #dummy: () = {
+            #(
+                #variant_streams
+            )*
+
             impl miniserde::Serialize for #ident {
                 fn begin(&self) -> miniserde::ser::Fragment {
                     match self {
                         #(
-                            #ident::#var_idents => {
-                                miniserde::ser::Fragment::Str(miniserde::export::Cow::Borrowed(#names))
+                            #ident::#var_idents { #variant_pattern_fields } => {
+                                #variant_impl
                             }
                         )*
                     }
                 }
             }
         };
-    })
+    };
+
+    Ok(tokens)
 }

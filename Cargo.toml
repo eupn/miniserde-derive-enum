@@ -11,7 +11,17 @@ edition = "2018"
 [lib]
 proc-macro = true
 
+# for testing
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
+[[bin]]
+name = "test"
+path = "src/test.rs"
+
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0.2"
 syn = "1.0"
+miniserde = "0.1.12" # for testing
