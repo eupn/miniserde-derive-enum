@@ -1,6 +1,6 @@
 use crate::{attr, bound};
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, format_ident};
+use quote::{format_ident, quote};
 use syn::{
     parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident,
     Result, Variant,
@@ -117,10 +117,7 @@ fn variant_fields_pattern(variant: &Variant) -> TokenStream {
     }
 
     // Tuple variants doesn't have fields with names
-    let is_tuple = variant.fields
-        .iter()
-        .filter(|f| f.ident.is_some())
-        .count() == 0;
+    let is_tuple = variant.fields.iter().filter(|f| f.ident.is_some()).count() == 0;
 
     let fields = list_field_names(variant);
 
