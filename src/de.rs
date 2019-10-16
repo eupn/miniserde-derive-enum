@@ -86,6 +86,7 @@ fn variant_builder_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
             #[derive(Deserialize)]
             struct #data_struct_name {
                 #(
+                    #[allow(non_snake_case)]
                     #field_names: #field_types,
                 )*
             }
@@ -174,6 +175,7 @@ pub fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenS
                 #variant_builders
             )*
 
+            #[allow(non_camel_case_types)]
             #[repr(C)]
             struct __TopLevelVisitor {
                 __out: miniserde::export::Option<#ident>,
@@ -204,6 +206,8 @@ pub fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenS
                 }
             }
 
+            #[allow(non_camel_case_types)]
+            #[allow(non_snake_case)]
             struct __TopLevelBuilder<'__a> {
                 #(
                     #names: miniserde::export::Option<#var_struct_name>,
@@ -234,6 +238,7 @@ pub fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenS
                     match self.__selected_key {
                         #(
                             Some(ref s) if s == #var_name => {
+                                #[allow(non_snake_case, unused_variables)]
                                 let #names = self.#names.take().ok_or(miniserde::Error)?;
 
                                 *self.__out = miniserde::export::Some(#ident :: #names

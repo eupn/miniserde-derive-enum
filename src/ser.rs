@@ -55,6 +55,7 @@ fn variant_body_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
 
     let (data, data_struct, data_struct_lifetime) = if is_unit {
         let s = quote! {
+            #[allow(non_camel_case_types)]
             struct #struct_name;
         };
 
