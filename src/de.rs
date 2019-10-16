@@ -25,17 +25,54 @@ fn list_field_names(variant: &Variant) -> Vec<Ident> {
         .collect::<Vec<_>>()
 }
 
+fn impl_deserialize_for_empty_struct(enum_ident: &Ident, name: &Ident) -> TokenStream {
+    let dummy = Ident::new(
+        &format!("_IMPL_MINIDESERIALIZE_FOR_{}_{}", enum_ident, name),
+        Span::call_site(),
+    );
+
+    let place_name = format_ident!("__Place_for_{}_{}", enum_ident, name);
+
+    quote! {
+        #[allow(non_camel_case_types)]
+        struct #name;
+
+        const #dummy: () = {
+            #[allow(non_camel_case_types)]
+            #[repr(C)]
+            struct #place_name {
+                out: miniserde::export::Option<#name>,
+            }
+
+            impl #place_name {
+                fn new(out: &mut miniserde::export::Option<#name>) -> &mut Self {
+                    unsafe { &mut *{ out as *mut miniserde::export::Option<#name> as *mut #place_name } }
+                }
+            }
+
+            impl miniserde::Deserialize for #name {
+                fn begin(out: &mut Option<Self>) -> &mut dyn miniserde::de::Visitor {
+                    impl miniserde::de::Visitor for #place_name {
+                        fn null(&mut self) -> miniserde::Result<()> {
+                            self.out = Some(#name {});
+                            Ok(())
+                        }
+                    }
+
+                    #place_name::new(out)
+                }
+            }
+        };
+    }
+}
+
 fn variant_builder_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
     let data_struct_name = format_ident!("__Data_{}_{}", enum_ident, variant.ident);
 
     let is_unit = variant.fields.iter().count() == 0;
 
     let data_struct = if is_unit {
-        let s = quote! {
-            struct #data_struct_name;
-        };
-
-        s
+        impl_deserialize_for_empty_struct(enum_ident, &data_struct_name)
     } else {
         let field_names = list_field_names(variant);
         let field_types = variant
