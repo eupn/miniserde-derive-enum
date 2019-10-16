@@ -1,145 +1,145 @@
 use crate::{attr, bound};
 use proc_macro2::{Span, TokenStream};
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{
-    parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident, Result,
+    parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident,
+    Result, Variant,
 };
 
 pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     match &input.data {
-        Data::Struct(DataStruct {
-            fields: Fields::Named(fields),
-            ..
-        }) => derive_struct(&input, fields),
         Data::Enum(enumeration) => derive_enum(&input, enumeration),
-        _ => Err(Error::new(
-            Span::call_site(),
-            "currently only structs with named fields are supported",
-        )),
+        _ => Err(Error::new(Span::call_site(), "only enums are supported")),
     }
 }
 
-pub fn derive_struct(input: &DeriveInput, fields: &FieldsNamed) -> Result<TokenStream> {
-    let ident = &input.ident;
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let dummy = Ident::new(
-        &format!("_IMPL_MINIDESERIALIZE_FOR_{}", ident),
-        Span::call_site(),
-    );
-
-    let fieldname = fields.named.iter().map(|f| &f.ident).collect::<Vec<_>>();
-    let fieldty = fields.named.iter().map(|f| &f.ty);
-    let fieldstr = fields
-        .named
+fn list_field_names(variant: &Variant) -> Vec<Ident> {
+    variant
+        .fields
         .iter()
-        .map(attr::name_of_field)
-        .collect::<Result<Vec<_>>>()?;
+        .map(|f| f.ident.clone())
+        .enumerate()
+        .map(|(i, f)| match f {
+            Some(f) => f,
+            None => format_ident!("_{}", i),
+        })
+        .collect::<Vec<_>>()
+}
 
-    let wrapper_generics = bound::with_lifetime_bound(&input.generics, "'__a");
-    let (wrapper_impl_generics, wrapper_ty_generics, _) = wrapper_generics.split_for_impl();
-    let bound = parse_quote!(miniserde::Deserialize);
-    let bounded_where_clause = bound::where_clause_with_bound(&input.generics, bound);
+fn variant_builder_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
+    let variant_name = &variant.ident.to_string();
+    let data_struct_name = format_ident!("__Data_{}_{}", enum_ident, variant.ident);
+    let visitor_name = format_ident!("__Visitor_{}_{}", enum_ident, variant.ident);
 
-    Ok(quote! {
-        #[allow(non_upper_case_globals)]
-        const #dummy: () = {
-            #[repr(C)]
-            struct __Visitor #impl_generics #where_clause {
-                __out: miniserde::export::Option<#ident #ty_generics>,
-            }
+    let is_unit = variant.fields.iter().count() == 0;
 
-            impl #impl_generics miniserde::Deserialize for #ident #ty_generics #bounded_where_clause {
-                fn begin(__out: &mut miniserde::export::Option<Self>) -> &mut dyn miniserde::de::Visitor {
-                    unsafe {
-                        &mut *{
-                            __out
-                            as *mut miniserde::export::Option<Self>
-                            as *mut __Visitor #ty_generics
-                        }
-                    }
-                }
-            }
+    let data_struct = if is_unit {
+        let s = quote! {
+            struct #data_struct_name;
+        };
 
-            impl #impl_generics miniserde::de::Visitor for __Visitor #ty_generics #bounded_where_clause {
-                fn map(&mut self) -> miniserde::Result<miniserde::export::Box<dyn miniserde::de::Map + '_>> {
-                    Ok(miniserde::export::Box::new(__State {
-                        #(
-                            #fieldname: miniserde::Deserialize::default(),
-                        )*
-                        __out: &mut self.__out,
-                    }))
-                }
-            }
+        s
+    } else {
+        let field_names = list_field_names(variant);
+        let field_types = variant
+            .fields
+            .iter()
+            .map(|f| f.ty.clone())
+            .collect::<Vec<_>>();
 
-            struct __State #wrapper_impl_generics #where_clause {
+        let s = quote! {
+            #[allow(non_camel_case_types)]
+            #[derive(Deserialize)]
+            struct #data_struct_name {
                 #(
-                    #fieldname: miniserde::export::Option<#fieldty>,
+                    #field_names: #field_types,
                 )*
-                __out: &'__a mut miniserde::export::Option<#ident #ty_generics>,
-            }
-
-            impl #wrapper_impl_generics miniserde::de::Map for __State #wrapper_ty_generics #bounded_where_clause {
-                fn key(&mut self, __k: &miniserde::export::str) -> miniserde::Result<&mut dyn miniserde::de::Visitor> {
-                    match __k {
-                        #(
-                            #fieldstr => miniserde::export::Ok(miniserde::Deserialize::begin(&mut self.#fieldname)),
-                        )*
-                        _ => miniserde::export::Ok(miniserde::de::Visitor::ignore()),
-                    }
-                }
-
-                fn finish(&mut self) -> miniserde::Result<()> {
-                    #(
-                        let #fieldname = self.#fieldname.take().ok_or(miniserde::Error)?;
-                    )*
-                    *self.__out = miniserde::export::Some(#ident {
-                        #(
-                            #fieldname,
-                        )*
-                    });
-                    miniserde::export::Ok(())
-                }
             }
         };
-    })
+
+        s
+    };
+
+    quote! {
+        #data_struct
+    }
+}
+
+fn variant_fields_pattern(variant: &Variant) -> TokenStream {
+    let variant_name = &variant.ident;
+    let is_unit = variant.fields.iter().count() == 0;
+    if is_unit {
+        return TokenStream::new();
+    }
+
+    // Tuple variants doesn't have fields with names
+    let is_tuple = variant.fields.iter().filter(|f| f.ident.is_some()).count() == 0;
+
+    let fields = list_field_names(variant);
+
+    let pattern = quote! {
+        #(
+            #fields: #variant_name . #fields,
+        )*
+    };
+
+    if is_tuple {
+        quote! {
+            ( #pattern )
+        }
+    } else {
+        quote! {
+            { #pattern }
+        }
+    }
 }
 
 pub fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
-    if input.generics.lt_token.is_some() || input.generics.where_clause.is_some() {
-        return Err(Error::new(
-            Span::call_site(),
-            "Enums with generics are not supported",
-        ));
-    }
-
     let ident = &input.ident;
     let dummy = Ident::new(
         &format!("_IMPL_MINIDESERIALIZE_FOR_{}", ident),
         Span::call_site(),
     );
 
-    let var_idents = enumeration
-        .variants
-        .iter()
-        .map(|variant| match variant.fields {
-            Fields::Unit => Ok(&variant.ident),
-            _ => Err(Error::new_spanned(
-                variant,
-                "Invalid variant: only simple enum variants without fields are supported",
-            )),
-        })
-        .collect::<Result<Vec<_>>>()?;
     let names = enumeration
         .variants
         .iter()
-        .map(attr::name_of_variant)
-        .collect::<Result<Vec<_>>>()?;
+        .map(|name| format_ident!("{}", name.ident))
+        .collect::<Vec<_>>();
+
+    let variant_builders = enumeration
+        .variants
+        .iter()
+        .map(|variant| variant_builder_impl(ident, variant))
+        .collect::<Vec<_>>();
+
+    let var_name = enumeration
+        .variants
+        .iter()
+        .map(|variant| variant.ident.to_string())
+        .collect::<Vec<_>>();
+
+    let var_struct_name = enumeration
+        .variants
+        .iter()
+        .map(|variant| format_ident!("__Data_{}_{}", ident, variant.ident))
+        .collect::<Vec<_>>();
+
+    let variant_patterns = enumeration
+        .variants
+        .iter()
+        .map(|variant| variant_fields_pattern(variant))
+        .collect::<Vec<_>>();
 
     Ok(quote! {
         #[allow(non_upper_case_globals)]
         const #dummy: () = {
+            #(
+                #variant_builders
+            )*
+
             #[repr(C)]
-            struct __Visitor {
+            struct __TopLevelVisitor {
                 __out: miniserde::export::Option<#ident>,
             }
 
@@ -149,20 +149,67 @@ pub fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenS
                         &mut *{
                             __out
                             as *mut miniserde::export::Option<Self>
-                            as *mut __Visitor
+                            as *mut __TopLevelVisitor
                         }
                     }
                 }
             }
 
-            impl miniserde::de::Visitor for __Visitor {
-                fn string(&mut self, s: &miniserde::export::str) -> miniserde::Result<()> {
-                    let value = match s {
-                        #( #names => #ident::#var_idents, )*
-                        _ => { return miniserde::export::Err(miniserde::Error) },
-                    };
-                    self.__out = miniserde::export::Some(value);
-                    miniserde::export::Ok(())
+            impl miniserde::de::Visitor for __TopLevelVisitor {
+                fn map(&mut self) -> miniserde::Result<miniserde::export::Box<dyn miniserde::de::Map + '_>> {
+                    Ok(miniserde::export::Box::new(__TopLevelBuilder {
+                        #(
+                            #names: miniserde::Deserialize::default(),
+                        )*
+
+                        __selected_key: miniserde::Deserialize::default(),
+                        __out: &mut self.__out,
+                    }))
+                }
+            }
+
+            struct __TopLevelBuilder<'__a> {
+                #(
+                    #names: miniserde::export::Option<#var_struct_name>,
+                )*
+
+                __selected_key: miniserde::export::Option<miniserde::export::String>,
+                __out: &'__a mut miniserde::export::Option<#ident>,
+            }
+
+            impl<'__a> miniserde::de::Map for __TopLevelBuilder<'__a> {
+                fn key(&mut self, __k: &miniserde::export::str) -> miniserde::Result<&mut dyn miniserde::de::Visitor> {
+                    match __k {
+                        #(
+                            #var_name => {
+                                self.__selected_key = Some(__k.to_owned());
+                                miniserde::export::Ok(miniserde::Deserialize::begin(&mut self.#names))
+                            }
+                        )*
+
+                        _ => {
+                            self.__selected_key = None;
+                            miniserde::export::Ok(miniserde::de::Visitor::ignore())
+                        }
+                    }
+                }
+
+                fn finish(&mut self) -> miniserde::Result<()> {
+                    match self.__selected_key {
+                        #(
+                            Some(ref s) if s == #var_name => {
+                                let #names = self.#names.take().ok_or(miniserde::Error)?;
+
+                                *self.__out = miniserde::export::Some(#ident :: #names
+                                    #variant_patterns
+                                );
+
+                                miniserde::export::Ok(())
+                            },
+                        )*
+
+                        _ => Err(miniserde::Error),
+                    }
                 }
             }
         };
