@@ -77,19 +77,21 @@ fn variant_fields_pattern(variant: &Variant) -> TokenStream {
 
     let fields = list_field_names(variant);
 
-    let pattern = quote! {
-        #(
-            #fields: #variant_name . #fields,
-        )*
-    };
-
     if is_tuple {
         quote! {
-            ( #pattern )
+            (
+                #(
+                    #variant_name . #fields,
+                )*
+            )
         }
     } else {
         quote! {
-            { #pattern }
+            {
+                #(
+                    #fields: #variant_name . #fields,
+                )*
+            }
         }
     }
 }

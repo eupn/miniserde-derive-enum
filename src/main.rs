@@ -4,34 +4,26 @@ use miniserde_derive_enum::{Deserialize_enum, Serialize_enum};
 pub fn main() {
     #[derive(Debug, Serialize_enum, Deserialize_enum)]
     enum E {
-        A { a: u8, b: Box<E> },
-        B { b: u8 },
+//        Unit,
+        Struct { a: u8, b: Box<E> },
+        Tuple(u8, String),
     }
+    let t = E::Tuple(0, "Hello".to_owned());
 
-    let s_a = E::A {
+
+    let s = E::Struct {
         a: 0,
-        b: Box::new(E::B { b: 1 }),
+        b: Box::new(E::Tuple (0, "hello".to_owned())),
     };
-    let s_b = E::B { b: 1 };
+    let t = E::Tuple (0, "hi".to_owned());
 
-    /*let u = E::Unit;
-    let t = E::Tuple(0u8, "Hello".to_owned());
+    let json_s = json::to_string(&s);
+    let json_t = json::to_string(&t);
+    println!("{}", json_s);
+    println!("{}", json_t);
 
-    println!(
-        "{}\n{}\n{}",
-        json::to_string(&s),
-        json::to_string(&u),
-        json::to_string(&t)
-    );*/
+    let s: E = json::from_str(&json_s).unwrap();
+    let t: E = json::from_str(&json_t).unwrap();
 
-    let json_a = json::to_string(&s_a);
-    println!("{}", json_a);
-
-    let json_b = json::to_string(&s_b);
-    println!("{}", json_b);
-
-    let s_a: E = json::from_str(&json_a).unwrap();
-    let s_b: E = json::from_str(&json_b).unwrap();
-
-    dbg!(s_a, s_b);
+    dbg!(s, t);
 }
