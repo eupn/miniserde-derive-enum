@@ -1,8 +1,7 @@
-use crate::{attr, bound};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
-    parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident,
+    Data, DataEnum, DeriveInput, Error, Ident,
     Result, Variant,
 };
 
@@ -140,30 +139,16 @@ fn variant_fields_pattern(variant: &Variant) -> TokenStream {
 
 fn derive_enum(input: &DeriveInput, enumeration: &DataEnum) -> Result<TokenStream> {
     let ident = &input.ident;
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let dummy = Ident::new(
         &format!("_IMPL_MINISERIALIZE_FOR_{}", ident),
         Span::call_site(),
     );
-
-    let index = 0usize..;
-
-    let wrapper_generics = bound::with_lifetime_bound(&input.generics, "'__a");
-    let (wrapper_impl_generics, wrapper_ty_generics, _) = wrapper_generics.split_for_impl();
-    let bound = parse_quote!(miniserde::Serialize);
-    let bounded_where_clause = bound::where_clause_with_bound(&input.generics, bound);
 
     let var_idents = enumeration
         .variants
         .iter()
         .map(|variant| &variant.ident)
         .collect::<Vec<_>>();
-
-    let names = enumeration
-        .variants
-        .iter()
-        .map(attr::name_of_variant)
-        .collect::<Result<Vec<_>>>()?;
 
     let variant_impl = enumeration
         .variants

@@ -1,8 +1,7 @@
-use crate::{attr, bound};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
-    parse_quote, Data, DataEnum, DataStruct, DeriveInput, Error, Fields, FieldsNamed, Ident,
+    Data, DataEnum, DeriveInput, Error, Ident,
     Result, Variant,
 };
 
@@ -27,9 +26,7 @@ fn list_field_names(variant: &Variant) -> Vec<Ident> {
 }
 
 fn variant_builder_impl(enum_ident: &Ident, variant: &Variant) -> TokenStream {
-    let variant_name = &variant.ident.to_string();
     let data_struct_name = format_ident!("__Data_{}_{}", enum_ident, variant.ident);
-    let visitor_name = format_ident!("__Visitor_{}_{}", enum_ident, variant.ident);
 
     let is_unit = variant.fields.iter().count() == 0;
 

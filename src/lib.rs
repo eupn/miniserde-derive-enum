@@ -2,8 +2,6 @@
 
 extern crate proc_macro;
 
-mod attr;
-mod bound;
 mod de;
 mod ser;
 
