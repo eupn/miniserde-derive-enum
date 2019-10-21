@@ -1,5 +1,9 @@
 # miniserde-derive-enum
 
+[![Crates.io](https://img.shields.io/crates/v/miniserde-derive-enum)](https://crates.io/crates/miniserde-derive-enum)
+[![License](https://img.shields.io/crates/l/miniserde-derive-enum)](https://crates.io/crates/miniserde-derive-enum)
+[![Downloads](https://img.shields.io/crates/d/miniserde-derive-enum)](https://crates.io/crates/miniserde-derive-enum)
+
 [Miniserde](https://github.com/dtolnay/miniserde) derive macros that support `enum`s.
 
 Provides a minimal `Serialize_enum`, `Deserialize_enum` derive macros
